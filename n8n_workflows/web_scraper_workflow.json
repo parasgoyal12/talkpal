@@ -1,0 +1,102 @@
+{
+  "name": "Study Companion - Web Scraper",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "study-companion/scrape",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "name": "Webhook - Receive URL",
+      "type": "n8n-nodes-base.webhook",
+      "position": [250, 300],
+      "webhookId": "study-companion-scraper"
+    },
+    {
+      "parameters": {
+        "url": "={{$json.body.url}}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "name": "HTTP Request - Fetch Page",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "const cheerio = require('cheerio');\n\n// Get the HTML content\nconst html = $input.first().json.data;\nconst $ = cheerio.load(html);\n\n// Remove unwanted elements\n$('script, style, nav, footer, header, iframe, noscript').remove();\n\n// Extract text\nlet text = $('body').text();\n\n// Clean up whitespace\ntext = text\n  .split('\\n')\n  .map(line => line.trim())\n  .filter(line => line.length > 0)\n  .join('\\n');\n\n// Limit length\nif (text.length > 10000) {\n  text = text.substring(0, 10000) + '\\n\\n...(content truncated)';\n}\n\n// Extract metadata\nconst title = $('title').text() || $('h1').first().text();\nconst metaDescription = $('meta[name=\"description\"]').attr('content') || '';\n\nreturn [{\n  json: {\n    url: $json.body.url,\n    title: title,\n    description: metaDescription,\n    cleaned_text: text,\n    length: text.length,\n    extracted_at: new Date().toISOString()\n  }\n}];"
+      },
+      "name": "Code - Extract and Clean Text",
+      "type": "n8n-nodes-base.code",
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{$json}}"
+      },
+      "name": "Respond with Cleaned Text",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "table": "scraped_content",
+        "columns": "url,title,content,extracted_at",
+        "additionalFields": {}
+      },
+      "name": "PostgreSQL - Store Content",
+      "type": "n8n-nodes-base.postgres",
+      "position": [850, 450],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Study Companion DB"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook - Receive URL": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request - Fetch Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request - Fetch Page": {
+      "main": [
+        [
+          {
+            "node": "Code - Extract and Clean Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Extract and Clean Text": {
+      "main": [
+        [
+          {
+            "node": "Respond with Cleaned Text",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "PostgreSQL - Store Content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

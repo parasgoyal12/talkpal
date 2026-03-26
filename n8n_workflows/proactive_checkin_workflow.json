@@ -1,0 +1,121 @@
+{
+  "name": "Study Companion - Proactive Check-ins",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 8
+            }
+          ]
+        },
+        "workflowTimezone": "UTC"
+      },
+      "name": "Schedule - Morning Check-in",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "operation": "select",
+        "table": "users",
+        "returnAll": true
+      },
+      "name": "PostgreSQL - Get Active Users",
+      "type": "n8n-nodes-base.postgres",
+      "position": [450, 300],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Study Companion DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// For each user, check if they should get a check-in\nconst items = $input.all();\nconst results = [];\n\nfor (const item of items) {\n  const user = item.json;\n  \n  // Check last activity\n  const lastActive = new Date(user.last_active);\n  const now = new Date();\n  const hoursSinceActive = (now - lastActive) / (1000 * 60 * 60);\n  \n  // Only send if user hasn't been active in last 8 hours\n  if (hoursSinceActive >= 8) {\n    results.push({\n      user_id: user.id,\n      username: user.username,\n      platform: user.platform,\n      hours_inactive: Math.round(hoursSinceActive)\n    });\n  }\n}\n\nreturn results.map(r => ({json: r}));"
+      },
+      "name": "Code - Filter Inactive Users",
+      "type": "n8n-nodes-base.code",
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://app:8000/api/proactive-message",
+        "authentication": "none",
+        "options": {
+          "timeout": 10000
+        },
+        "bodyParametersJson": "={{ {\n  \"user_id\": $json.user_id,\n  \"context\": {\n    \"hours_inactive\": $json.hours_inactive,\n    \"trigger\": \"scheduled_checkin\"\n  }\n} }}"
+      },
+      "name": "HTTP - Generate Proactive Message",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "chatId": "={{$json.user_id}}",
+        "text": "={{$json.message}}",
+        "additionalFields": {}
+      },
+      "name": "Telegram - Send Check-in",
+      "type": "n8n-nodes-base.telegram",
+      "position": [1050, 300],
+      "credentials": {
+        "telegramApi": {
+          "id": "1",
+          "name": "Study Companion Bot"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Schedule - Morning Check-in": {
+      "main": [
+        [
+          {
+            "node": "PostgreSQL - Get Active Users",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PostgreSQL - Get Active Users": {
+      "main": [
+        [
+          {
+            "node": "Code - Filter Inactive Users",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Filter Inactive Users": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Generate Proactive Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Generate Proactive Message": {
+      "main": [
+        [
+          {
+            "node": "Telegram - Send Check-in",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

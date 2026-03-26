@@ -1,0 +1,214 @@
+{
+  "name": "Study Companion - Reminder System",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "study-companion",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "name": "Webhook - Receive Reminder",
+      "type": "n8n-nodes-base.webhook",
+      "position": [250, 300],
+      "webhookId": "study-companion-reminder"
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "table": "reminders",
+        "columns": "user_id,task,time,reminder_id,context,status",
+        "additionalFields": {}
+      },
+      "name": "PostgreSQL - Store Reminder",
+      "type": "n8n-nodes-base.postgres",
+      "position": [450, 300],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Study Companion DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 5
+            }
+          ]
+        }
+      },
+      "name": "Schedule - Check Reminders",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "position": [250, 500]
+    },
+    {
+      "parameters": {
+        "operation": "select",
+        "table": "reminders",
+        "where": "status = 'pending' AND reminder_time <= NOW()",
+        "limit": 10
+      },
+      "name": "PostgreSQL - Get Due Reminders",
+      "type": "n8n-nodes-base.postgres",
+      "position": [450, 500],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Study Companion DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{$json.length}}",
+              "operation": "largerEqual",
+              "value2": 1
+            }
+          ]
+        }
+      },
+      "name": "IF - Has Reminders",
+      "type": "n8n-nodes-base.if",
+      "position": [650, 500]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Get the reminder details\nconst items = $input.all();\nconst results = [];\n\nfor (const item of items) {\n  const reminder = item.json;\n  \n  // Format the message\n  const message = `Hey! Just a friendly reminder: ${reminder.task}\\n\\nYou asked me to remind you about this. Ready to dive in?`;\n  \n  results.push({\n    user_id: reminder.user_id,\n    message: message,\n    reminder_id: reminder.id,\n    platform: reminder.platform || 'telegram'\n  });\n}\n\nreturn results.map(r => ({json: r}));"
+      },
+      "name": "Code - Format Reminder Message",
+      "type": "n8n-nodes-base.code",
+      "position": [850, 450]
+    },
+    {
+      "parameters": {
+        "chatId": "={{$json.user_id}}",
+        "text": "={{$json.message}}",
+        "additionalFields": {}
+      },
+      "name": "Telegram - Send Reminder",
+      "type": "n8n-nodes-base.telegram",
+      "position": [1050, 400],
+      "credentials": {
+        "telegramApi": {
+          "id": "1",
+          "name": "Study Companion Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "table": "reminders",
+        "updateKey": "id",
+        "columns": "status",
+        "additionalFields": {
+          "status": "sent"
+        }
+      },
+      "name": "PostgreSQL - Update Reminder Status",
+      "type": "n8n-nodes-base.postgres",
+      "position": [1250, 400],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Study Companion DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{{\n  \"success\": true,\n  \"message\": \"Reminder scheduled successfully\"\n}}}"
+      },
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "position": [650, 300]
+    }
+  ],
+  "connections": {
+    "Webhook - Receive Reminder": {
+      "main": [
+        [
+          {
+            "node": "PostgreSQL - Store Reminder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PostgreSQL - Store Reminder": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule - Check Reminders": {
+      "main": [
+        [
+          {
+            "node": "PostgreSQL - Get Due Reminders",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PostgreSQL - Get Due Reminders": {
+      "main": [
+        [
+          {
+            "node": "IF - Has Reminders",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Has Reminders": {
+      "main": [
+        [
+          {
+            "node": "Code - Format Reminder Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Format Reminder Message": {
+      "main": [
+        [
+          {
+            "node": "Telegram - Send Reminder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram - Send Reminder": {
+      "main": [
+        [
+          {
+            "node": "PostgreSQL - Update Reminder Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}
